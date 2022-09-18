@@ -1,5 +1,6 @@
 # rbTree
 rbTree in golang
+    参考linux-2.6.9中C源码实现
 
 插入原则：
 节点以红色节点插入，尽量减少平衡影响：
