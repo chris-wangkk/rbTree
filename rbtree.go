@@ -1,4 +1,9 @@
-package rbtree
+package rbTree
+
+import (
+	"container/list"
+	"fmt"
+)
 
 /*
 	rb树节点
@@ -54,10 +59,11 @@ func (ins *rb_node) rb_rotate_right() {
 func (ins *rb_node) rb_next() *rb_node {
 	if nil != ins.rb_right {
 		//节点有右子树
-		for nil != ins.rb_left {
-			ins = ins.rb_left
+		node := ins.rb_right
+		for nil != node.rb_left {
+			node = node.rb_left
 		}
-		return ins
+		return node
 	}
 	/*
 		节点无右子树：
@@ -91,11 +97,12 @@ func (ins *rb_node) rb_prev() *rb_node {
 }
 
 //关联父节点
-func (ins *rb_node) rb_link(parent *rb_node, root *Rb_tree) {
+func (ins *rb_node) rb_link(obj RbNodeItem, parent *rb_node, root *Rb_tree) {
 	ins.rb_parent = parent //此时直接就挂上
 	ins.rb_color = RB_RED  //初始=r（尽量不违反RB树约束）
 	ins.rb_left = nil
 	ins.rb_right = nil
+	ins.data = obj
 	ins.root = root
 }
 
@@ -105,7 +112,7 @@ func (ins *rb_node) rb_insert() {
 		parent           = ins.rb_parent
 		gparent *rb_node = nil
 	)
-
+	//fmt.Printf("%v %d\n", ins.root.node.data.String(), ins.rb_color)
 	//插入节点=红色，故父节点若=黑色则对平衡无影响
 	for nil != parent && RB_RED == parent.rb_color { //父节点=红色,可推断肯定有祖父节点（不为空&红色）
 		gparent = parent.rb_parent
@@ -113,14 +120,20 @@ func (ins *rb_node) rb_insert() {
 		if parent == gparent.rb_left {
 			//父节点是左儿子
 			{
-				//若有叔叔节点，理论上应该=红色，因为此时父节点下没有黑节点。即使叔叔节点=黑色则根据RB树原理也不应该进行如下操作
+				//若有叔叔节点，首次进入理论上应该=红色，因为此时父节点下没有黑节点（后续就不保证了）
 				uncle := gparent.rb_right
-				if nil != uncle && uncle.rb_color == RB_RED { //有叔叔节点&红色
-					//将父节点和叔叔节点与祖父节点的颜色互换
+				if nil != uncle && uncle.rb_color == RB_RED { //有叔叔节点&红色->出现双红(ins和父层节点)
+					//将父节点和叔叔节点与祖父节点的颜色互换-->消除双红
 					uncle.rb_color = RB_BLACK
 					parent.rb_color = RB_BLACK
 					gparent.rb_color = RB_RED
-					parent = gparent //向上回溯（可能上层节点=红色，此时违反RB树约束）
+					//向上回溯（消除后可能导致上层节点出现双红）
+					ins = gparent
+					/*
+						这里会疑惑为啥不是parent=gparent(而是直接再跳一层)
+						原因是若gparent的父节点=红色，根据RB树约束gparent的兄弟节点肯定=黑色（即该层无需调整）
+					*/
+					parent = ins.rb_parent
 					continue
 				}
 			}
@@ -143,7 +156,8 @@ func (ins *rb_node) rb_insert() {
 					uncle.rb_color = RB_BLACK
 					parent.rb_color = RB_BLACK
 					gparent.rb_color = RB_RED
-					parent = gparent
+					ins = gparent
+					parent = ins.rb_parent
 					continue
 				}
 			}
@@ -431,24 +445,112 @@ func (ins *Rb_tree) search(obj RbNodeItem) (*rb_node, int, bool) {
 	return parent, loc, false
 }
 
-func (ins *Rb_tree) Insert(obj RbNodeItem) {
+func (ins *Rb_tree) Insert(obj RbNodeItem) bool {
 	parent, loc, exist := ins.search(obj)
 	if exist {
-		return
+		return false
 	}
 	if nil == parent && ROOT != loc {
 		panic("异常，不应该出现")
 	}
 	node := new(rb_node)
-	node.rb_link(parent, ins)
+	node.rb_link(obj, parent, ins)
 	if nil == parent && ROOT == loc {
+		//根节点
+		node.rb_color = RB_BLACK
 		ins.node = node
-		return
+		return true
 	}
 	if LEFT_CHILD == loc {
 		parent.rb_left = node
 	} else {
 		parent.rb_right = node
 	}
+	//fmt.Printf("%v %d\n", ins.node.data.String(), ins.node.rb_color)
 	node.rb_insert()
+	return true
+}
+
+func (ins *Rb_tree) Delete(obj RbNodeItem) {
+	parent, loc, exist := ins.search(obj)
+	if !exist {
+		return
+	}
+
+	var node *rb_node
+	if LEFT_CHILD == loc {
+		node = parent.rb_left
+	} else {
+		node = parent.rb_right
+	}
+	if nil != node {
+		node.rb_erase()
+	}
+}
+
+func (ins *Rb_tree) PreTraverse() []string {
+	out := make([]string, 0)
+	first := ins.rb_first()
+	for nil != first {
+		//fmt.Printf("%+v \n", first)
+		out = append(out, fmt.Sprintf("%s with %v", first.data.String(), first.rb_color))
+		first = first.rb_next()
+	}
+	return out
+}
+
+type rb_node_with_level struct {
+	*rb_node
+	level uint32
+}
+
+func (ins *Rb_tree) LevelTraverse() [][]string {
+	if nil == ins.node {
+		//空
+		return nil
+	}
+	var (
+		maxLevel = uint32(0)
+		queue    = list.New()
+		mNodes   = make(map[uint32][]string)
+	)
+	queue.PushBack(&rb_node_with_level{
+		rb_node: ins.node,
+		level:   1,
+	})
+	for e := queue.Front(); nil != e; e = e.Next() {
+		cur := e.Value.(*rb_node_with_level)
+		if nil != cur.rb_left {
+			queue.PushBack(&rb_node_with_level{
+				rb_node: cur.rb_left,
+				level:   cur.level + 1,
+			})
+		}
+		if nil != cur.rb_right {
+			queue.PushBack(&rb_node_with_level{
+				rb_node: cur.rb_right,
+				level:   cur.level + 1,
+			})
+		}
+		vNode, prs := mNodes[cur.level]
+		if !prs {
+			vNode = make([]string, 0, 1)
+		}
+		vNode = append(vNode, fmt.Sprintf("%s with %v", cur.data.String(), cur.rb_color))
+		mNodes[cur.level] = vNode
+		if cur.level > maxLevel {
+			maxLevel = cur.level
+		}
+	}
+
+	out := make([][]string, 0, maxLevel)
+	for idx := uint32(1); idx <= maxLevel; idx++ {
+		vNode, prs := mNodes[idx]
+		if !prs {
+			out = append(out, []string{})
+			continue
+		}
+		out = append(out, vNode)
+	}
+	return out
 }

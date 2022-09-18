@@ -1,4 +1,4 @@
-package rbtree
+package rbTree
 
 const (
 	RB_RED   = 0
